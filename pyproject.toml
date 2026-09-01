@@ -1,0 +1,35 @@
+[project]
+name = "multi-agent-travel-assistant-mcp-guardrails-hitl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "SATYAJIT2747", email = "satyagudu1148@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "airportsdata==20260315",
+    "fastapi==0.136.3",
+    "jinja2==3.1.6",
+    "langchain==1.3.2",
+    "langchain-community==0.4.2",
+    "langchain-google-genai>=4.3.7",
+    "langchain-groq==1.1.3",
+    "langchain-tavily==0.2.18",
+    "langgraph==1.2.2",
+    "langgraph-checkpoint-postgres==3.1.0",
+    "psycopg-pool==3.3.1",
+    "psycopg[binary]==3.3.4",
+    "pycountry==26.2.16",
+    "python-dotenv==1.2.2",
+    "requests==2.34.2",
+    "tavily-python==0.7.24",
+    "uvicorn==0.48.0",
+]
+
+[project.scripts]
+multi-agent-travel-assistant-mcp-guardrails-hitl = "multi_agent_travel_assistant_mcp_guardrails_hitl:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"

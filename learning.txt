@@ -1,0 +1,90 @@
+                         USER
+                           │
+                           ▼
+                     🌐 Browser
+                           │
+                           │ GET /
+                           ▼
+                    ┌─────────────┐
+                    │   Uvicorn   │
+                    │ Runs server │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   FastAPI   │
+                    └──────┬──────┘
+                           │
+                    GET /
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   Jinja2    │
+                    └──────┬──────┘
+                           │
+                           ▼
+              templates/index.html
+                           │
+                  ┌────────┴────────┐
+                  ▼                 ▼
+          static/style.css    static/script.js
+           (via mount)              │
+                                    │
+                          User enters trip request
+                                    │
+                                    ▼
+                         POST /api/travel
+                                    │
+                                    ▼
+                         ┌────────────────┐
+                         │    FastAPI     │
+                         │travel_planner()│
+                         └───────┬────────┘
+                                 │
+                                 ▼
+                       TravelRequest
+                     (Pydantic validation)
+                                 │
+                                 ▼
+                      run_travel_agent()
+                                 │
+                                 ▼
+                         ┌─────────────┐
+                         │  LangGraph  │
+                         └──────┬──────┘
+                                │
+                 ┌──────────────┼──────────────┐
+                 ▼              ▼              ▼
+           Flight Agent     Hotel Agent    Itinerary Agent
+                 │              │              │
+                 ▼              ▼              ▼
+           Flight Tool     Tavily Tool      Gemini LLM
+                 │              │              │
+                 ▼              ▼              │
+          AviationStack      Tavily API       │
+                 │              │              │
+                 └──────────────┴──────────────┘
+                                │
+                                ▼
+                          Final Agent
+                                │
+                                ▼
+                           Gemini LLM
+                                │
+                                ▼
+                         Final Response
+                                │
+                                ▼
+                           PostgreSQL
+                        (Checkpointer)
+                                │
+                                ▼
+                            FastAPI
+                                │
+                            JSON Response
+                                │
+                                ▼
+                           script.js
+                                │
+                                ▼
+                              USER

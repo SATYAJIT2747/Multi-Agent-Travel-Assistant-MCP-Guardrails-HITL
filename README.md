@@ -1,6 +1,4 @@
-# TripMate AI
 
-<img width="1536" height="1024" alt="TripMate AI architecture diagram" src="https://github.com/user-attachments/assets/a743e1dc-c2cc-4d82-a754-3e41846766df" />
 
 TripMate AI is a web-based travel planning assistant that combines live flight status data, web research, and generative AI to produce a practical trip plan from a natural-language request.
 
@@ -10,31 +8,8 @@ The project is organized around a multi-agent workflow built with LangGraph. Eac
 
 ## Architecture
 
-```mermaid
-flowchart TD
-	User[Traveler] --> Browser[Browser UI]
-	Browser -->|GET /| Web[FastAPI web layer]
-	Web --> Template[Jinja2 template]
-	Template --> Assets[HTML, CSS, JavaScript]
+<img width="1536" height="1024" alt="TripMate AI architecture diagram" src="https://github.com/user-attachments/assets/a743e1dc-c2cc-4d82-a754-3e41846766df" />
 
-	Browser -->|POST /api/travel| API[Travel API]
-	API --> Validate[Request validation]
-	Validate --> Graph[LangGraph workflow]
-
-	Graph --> Flight[Flight specialist]
-	Graph --> Hotel[Hotel research specialist]
-	Flight --> AviationStack[AviationStack API]
-	Hotel --> Tavily[Tavily Search API]
-	Hotel --> Itinerary[Itinerary specialist]
-	Flight --> Itinerary
-	Itinerary --> Gemini[Google Gemini]
-	Itinerary --> Final[Final response specialist]
-	Final --> Gemini
-
-	Graph --> Checkpointer[PostgreSQL checkpoint store]
-	Final --> API
-	API --> Browser
-```
 
 ### Request lifecycle
 

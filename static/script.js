@@ -185,8 +185,16 @@ function createTravelCards(resultBox) {
 
 function showResult(answer, threadId) {
 
+    const markdownAnswer = Array.isArray(answer)
+        ? answer.map(item => {
+            if (typeof item === "string") return item;
+            if (item && typeof item.text === "string") return item.text;
+            return "";
+        }).join("\n")
+        : String(answer ?? "");
+
     // Save Markdown for PDF generation
-    latestAnswerMarkdown = answer;
+    latestAnswerMarkdown = markdownAnswer;
 
 
     const resultSection =
@@ -202,7 +210,7 @@ function showResult(answer, threadId) {
     // Convert Markdown response to HTML
     if (typeof marked !== "undefined") {
 
-        resultBox.innerHTML = marked.parse(answer);
+        resultBox.innerHTML = marked.parse(markdownAnswer);
 
         // Convert major sections into cards
         createTravelCards(resultBox);
@@ -210,7 +218,7 @@ function showResult(answer, threadId) {
     } else {
 
         // Fallback if Markdown library fails
-        resultBox.innerText = answer;
+        resultBox.innerText = markdownAnswer;
     }
 
 

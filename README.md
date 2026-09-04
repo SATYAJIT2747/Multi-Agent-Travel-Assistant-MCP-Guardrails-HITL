@@ -42,7 +42,19 @@ The second version introduces MCP as the tool layer while preserving the working
 
 Phase 2 makes the travel assistant more modular and extensible. New tools can be exposed through MCP without embedding every provider implementation directly in the LangGraph workflow.
 
-> **Current status:** MCP integration and the OpenWeather custom tool are implemented. Explicit guardrail nodes and a human-in-the-loop approval interrupt are planned for the next phase.
+### Phase 3: Supervisor, guardrails, budget analysis, and human approval
+
+The third version adds control and review layers around the MCP-enabled travel workflow:
+
+- A supervisor agent classifies each request, extracts trip constraints, and selects only the specialist agents needed for that request.
+- An input guardrail checks whether the request is travel-related and blocks clearly unrelated or harmful requests before specialist work begins.
+- A budget specialist evaluates estimated cost categories, budget risks, feasibility, and money-saving options.
+- The itinerary specialist combines the selected specialist results into a draft plan.
+- A LangGraph human-in-the-loop interrupt pauses the workflow so a person can approve the draft or provide revision feedback.
+- The final response specialist incorporates the approval decision and feedback before generating the polished travel plan.
+- LangGraph routing preserves a predictable agent order while skipping specialists that the supervisor did not select.
+
+Phase 3 improves relevance, safety, cost awareness, and user control. Requests no longer have to run every specialist, unrelated prompts are stopped at the workflow boundary, and no final plan is produced until the traveler reviews the draft.
 
 ## Architecture
 
@@ -53,32 +65,45 @@ Phase 2 makes the travel assistant more modular and extensible. New tools can be
 
 1. A traveler enters a request such as a destination, duration, origin, and budget in the browser.
 2. The browser sends the request to the FastAPI travel endpoint and keeps the returned thread identifier for later requests.
-3. The flight specialist calls the AviationStack MCP server to retrieve airport and airline information.
-4. The hotel specialist calls the hosted Tavily MCP server with a destination-focused research query.
-5. The weather specialist extracts the destination and calls the custom weather MCP server for current conditions and a forecast from OpenWeather.
-6. The itinerary specialist uses the request and gathered travel information to create a practical itinerary with Gemini.
-7. The final specialist combines flights, hotel research, weather, itinerary, budget context, and recommendations into the user-facing answer.
-8. LangGraph persists workflow checkpoints in PostgreSQL so a thread can be continued with the same identifier.
-9. The API returns the final answer and supporting result fields as JSON. The browser renders the Markdown response and can copy or export it as a PDF.
+3. The supervisor input guardrail checks whether the request is appropriate for travel planning.
+4. For allowed requests, the supervisor extracts trip constraints and chooses the required specialist agents.
+5. Selected specialists call the MCP tools for flight, hotel, and weather information, while the budget specialist evaluates trip affordability.
+6. The itinerary specialist combines the available results into a practical draft itinerary.
+7. LangGraph pauses at the human-in-the-loop interrupt and returns the draft for approval or revision feedback.
+8. After approval or feedback, the final specialist produces the polished user-facing answer.
+9. LangGraph persists workflow checkpoints in PostgreSQL so a thread can be continued with the same identifier.
+10. The API returns the answer and supporting result fields as JSON. The browser renders the Markdown response and can copy or export it as a PDF.
 
 ## Agents and responsibilities
 
 | Component | Responsibility |
 | --- | --- |
+| Supervisor agent | Routes the request, extracts trip constraints, and selects the required specialists. |
+| Input guardrail | Allows travel-related requests and blocks clearly unrelated or harmful requests. |
 | Flight specialist | Parses route information, resolves cities or countries to IATA codes, and retrieves live flight data. |
 | Hotel specialist | Researches hotel options and destination information through web search. |
 | Weather specialist | Retrieves current weather and forecast data through the custom weather MCP server. |
+| Budget specialist | Estimates trip costs, identifies budget risks, and assesses feasibility. |
 | Itinerary specialist | Turns the request and research results into a day-by-day travel plan. |
+| Human approval step | Pauses before finalization so a traveler can approve or request revisions. |
 | Final response specialist | Produces the structured answer shown to the traveler. |
 | PostgreSQL checkpointer | Stores LangGraph state associated with a conversation thread. |
 
-The current graph is sequential rather than supervisor-routed: flight search runs first, followed by hotel research, weather lookup, itinerary generation, and final response composition.
+The Phase 3 graph is supervisor-routed. It follows the configured specialist order, but skips agents that are not relevant to the request. The itinerary agent, human approval step, and final response agent remain part of the completion path for allowed requests.
 
 ## Tools and services
 
 ### LangGraph
 
-LangGraph is the workflow engine. It owns the shared travel state, executes the specialist stages in order, and connects the workflow to PostgreSQL checkpointing.
+LangGraph is the workflow engine. It owns the shared travel state, routes work from the supervisor to selected specialists, pauses for human approval, and connects the workflow to PostgreSQL checkpointing.
+
+### Supervisor and guardrails
+
+The supervisor uses Gemini to perform two control tasks before travel research begins: an input guardrail determines whether the request belongs to the travel domain, and a routing step selects the relevant agents and extracts constraints such as destination, origin, duration, budget, travel style, and preferences. Blocked requests end with a user-facing explanation instead of invoking travel tools.
+
+### Human-in-the-loop approval
+
+The itinerary is generated as a draft and returned through a LangGraph interrupt. The browser can approve the draft or send revision feedback. The same PostgreSQL-backed thread is then resumed so the final response agent can incorporate the review decision.
 
 ### Google Gemini
 
@@ -157,12 +182,13 @@ The `/health` endpoint returns a simple service status. The browser uses `/api/t
 
 - Flight information is live/status data; ticket pricing is not guaranteed by the AviationStack integration.
 - Hotel suggestions are search results and should be verified before booking.
-- The workflow currently runs specialist stages in a fixed sequence rather than using supervisor routing.
+- The supervisor preserves a configured execution order, so selected specialists still run sequentially rather than in parallel.
 - MCP tool availability depends on the hosted Tavily endpoint, `uvx` and the AviationStack MCP package, and the local custom weather server.
-- Guardrail policy checks and human approval are not yet represented as graph nodes or interrupts.
+- Supervisor and guardrail decisions depend on a valid structured response from the language model; the workflow includes a full-agent fallback when supervisor parsing fails.
+- The current guardrail is an input policy check. It does not replace provider verification, booking confirmation, or a separate output safety review.
 - The included container file and dependency files should be kept aligned before container deployment.
 
-The next evolution is to add input and output guardrail stages around the MCP-enabled graph, introduce a human approval checkpoint before any future booking or other consequential action, and expand the MCP tool set as the assistant grows.
+Future improvements include stronger structured-output validation, an explicit output guardrail, real booking integrations behind approval, and expanded MCP tools.
 
 ## License
 

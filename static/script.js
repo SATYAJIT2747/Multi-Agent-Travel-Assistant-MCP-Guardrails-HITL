@@ -1,538 +1,315 @@
 let currentThreadId = localStorage.getItem("travel_thread_id") || null;
 let latestAnswerMarkdown = "";
+let waitingForApproval = false;
 
-
-/* =========================================
-   QUICK PROMPTS
-========================================= */
+const AGENT_LABELS = {
+  flight_agent: "✈️ Flight Agent",
+  hotel_agent: "🏨 Hotel Agent",
+  weather_agent: "🌦️ Weather Agent",
+  budget_agent: "💰 Budget Agent",
+  itinerary_agent: "🗓️ Itinerary Agent"
+};
 
 function setPrompt(text) {
-    document.getElementById("userInput").value = text;
+  document.getElementById("userInput").value = text;
 }
 
+function setLoading(isLoading, mode = "draft") {
+  const sendBtn = document.getElementById("sendBtn");
+  const btnText = document.getElementById("btnText");
+  const btnLoader = document.getElementById("btnLoader");
+  const approveBtn = document.getElementById("approveBtn");
+  const reviseBtn = document.getElementById("reviseBtn");
 
-/* =========================================
-   LOADING STATE
-========================================= */
+  sendBtn.disabled = isLoading;
+  approveBtn.disabled = isLoading;
+  reviseBtn.disabled = isLoading;
 
-function setLoading(isLoading) {
-
-    const sendBtn = document.getElementById("sendBtn");
-    const btnText = document.getElementById("btnText");
-    const btnLoader = document.getElementById("btnLoader");
-
-    sendBtn.disabled = isLoading;
-
-    if (isLoading) {
-
-        btnText.classList.add("hidden");
-        btnLoader.classList.remove("hidden");
-
-    } else {
-
-        btnText.classList.remove("hidden");
-        btnLoader.classList.add("hidden");
-    }
+  if (isLoading && mode === "draft") {
+    btnText.classList.add("hidden");
+    btnLoader.classList.remove("hidden");
+  } else {
+    btnText.classList.remove("hidden");
+    btnLoader.classList.add("hidden");
+  }
 }
-
-
-/* =========================================
-   ERROR HANDLING
-========================================= */
 
 function showError(message) {
-
-    const errorBox = document.getElementById("errorBox");
-
-    errorBox.textContent = message;
-    errorBox.classList.remove("hidden");
+  const errorBox = document.getElementById("errorBox");
+  errorBox.textContent = message;
+  errorBox.classList.remove("hidden");
+  errorBox.scrollIntoView({ behavior: "smooth", block: "center" });
 }
-
 
 function hideError() {
-
-    const errorBox = document.getElementById("errorBox");
-
-    errorBox.classList.add("hidden");
-    errorBox.textContent = "";
+  const errorBox = document.getElementById("errorBox");
+  errorBox.classList.add("hidden");
+  errorBox.textContent = "";
 }
 
+function markdownText(value) {
+  if (typeof value === "string") {
+    return value;
+  }
 
-/* =========================================
-   CREATE PREMIUM TRAVEL CARDS
-========================================= */
+  if (Array.isArray(value)) {
+    return value.map(markdownText).filter(Boolean).join("\n\n");
+  }
 
-function createTravelCards(resultBox) {
+  if (value && typeof value === "object") {
+    return markdownText(value.text ?? value.content ?? "");
+  }
 
-    // Map AI response sections to icons
-    const sectionIcons = {
-
-        "trip summary": "🧳",
-        "flight information": "✈️",
-        "hotel suggestions": "🏨",
-        "day-by-day itinerary": "🗓️",
-        "estimated budget": "💰",
-        "final recommendations": "💡"
-    };
-
-
-    // Get all main Markdown headings:
-    // ## Heading becomes <h2>
-    const headings = [
-        ...resultBox.querySelectorAll("h2")
-    ];
-
-
-    headings.forEach((heading) => {
-
-        // Remove "1. ", "2. " etc.
-        // Convert to lowercase for matching
-        const headingText = heading.textContent
-            .replace(/^\d+\.\s*/, "")
-            .toLowerCase()
-            .trim();
-
-
-        // Default icon
-        let icon = "📍";
-
-
-        // Find the correct icon
-        for (const [sectionName, sectionIcon] of Object.entries(sectionIcons)) {
-
-            if (headingText.includes(sectionName)) {
-
-                icon = sectionIcon;
-                break;
-            }
-        }
-
-
-        // Create the main card
-        const card = document.createElement("div");
-
-        card.className = "travel-result-card";
-
-
-        // Insert the card before the heading
-        heading.parentNode.insertBefore(card, heading);
-
-
-        // Create card header
-        const cardHeader = document.createElement("div");
-
-        cardHeader.className = "travel-card-header";
-
-
-        // Create icon container
-        const iconBox = document.createElement("div");
-
-        iconBox.className = "travel-card-icon";
-        iconBox.textContent = icon;
-
-
-        // Add icon to header
-        cardHeader.appendChild(iconBox);
-
-
-        // Move heading into the card header
-        cardHeader.appendChild(heading);
-
-
-        // Add header to card
-        card.appendChild(cardHeader);
-
-
-        /*
-        Move all content after this heading
-        into the card until we reach
-        the next <h2>.
-        */
-
-        let nextElement = card.nextSibling;
-
-
-        while (nextElement) {
-
-            // Stop when the next main section starts
-            if (
-                nextElement.nodeType === Node.ELEMENT_NODE &&
-                nextElement.tagName === "H2"
-            ) {
-                break;
-            }
-
-
-            // Save the current element
-            const currentElement = nextElement;
-
-
-            // Move pointer before moving element
-            nextElement = nextElement.nextSibling;
-
-
-            // Move content into this card
-            card.appendChild(currentElement);
-        }
-
-    });
+  return value == null ? "" : String(value);
 }
 
-
-/* =========================================
-   SHOW AI RESULT
-========================================= */
-
-function showResult(answer, threadId) {
-
-    const markdownAnswer = Array.isArray(answer)
-        ? answer.map(item => {
-            if (typeof item === "string") return item;
-            if (item && typeof item.text === "string") return item.text;
-            return "";
-        }).join("\n")
-        : String(answer ?? "");
-
-    // Save Markdown for PDF generation
-    latestAnswerMarkdown = markdownAnswer;
-
-
-    const resultSection =
-        document.getElementById("resultSection");
-
-    const resultBox =
-        document.getElementById("resultBox");
-
-    const threadInfo =
-        document.getElementById("threadInfo");
-
-
-    // Convert Markdown response to HTML
-    if (typeof marked !== "undefined") {
-
-        resultBox.innerHTML = marked.parse(markdownAnswer);
-
-        // Convert major sections into cards
-        createTravelCards(resultBox);
-
-    } else {
-
-        // Fallback if Markdown library fails
-        resultBox.innerText = markdownAnswer;
-    }
-
-
-    // Show conversation thread ID
-    threadInfo.textContent =
-        `Thread ID: ${threadId}`;
-
-
-    // Make result section visible
-    resultSection.classList.remove("hidden");
-
-
-    // Smoothly scroll to result
-    resultSection.scrollIntoView({
-
-        behavior: "smooth",
-        block: "start"
-    });
+function renderMarkdown(element, markdown) {
+  if (typeof marked !== "undefined") {
+    element.innerHTML = marked.parse(markdownText(markdown));
+  } else {
+    element.innerText = markdownText(markdown);
+  }
 }
 
+function showWorkflow(data) {
+  const section = document.getElementById("workflowSection");
+  const reasoning = document.getElementById("supervisorReasoning");
+  const chips = document.getElementById("agentChips");
+  const guardrailBadge = document.getElementById("guardrailBadge");
 
-/* =========================================
-   SEND MESSAGE TO FASTAPI
-========================================= */
+  reasoning.textContent = data.supervisor_reasoning || "Supervisor routing completed.";
+  chips.innerHTML = "";
+
+  (data.selected_agents || []).forEach((agent) => {
+    const chip = document.createElement("span");
+    chip.className = "agent-chip";
+    chip.textContent = AGENT_LABELS[agent] || agent;
+    chips.appendChild(chip);
+  });
+
+  if (data.guardrail_allowed === false) {
+    guardrailBadge.textContent = "Guardrail blocked";
+    guardrailBadge.classList.add("blocked");
+  } else {
+    guardrailBadge.textContent = "Guardrail passed";
+    guardrailBadge.classList.remove("blocked");
+  }
+
+  section.classList.remove("hidden");
+}
+
+function showResult(answer, threadId, isDraft = false) {
+  latestAnswerMarkdown = markdownText(answer);
+
+  const resultSection = document.getElementById("resultSection");
+  const resultBox = document.getElementById("resultBox");
+  const threadInfo = document.getElementById("threadInfo");
+  const resultTitle = document.getElementById("resultTitle");
+
+  renderMarkdown(resultBox, latestAnswerMarkdown);
+  threadInfo.textContent = `Thread ID: ${threadId}`;
+  resultTitle.textContent = isDraft ? "Draft Travel Plan" : "Your Final AI Travel Plan";
+  resultSection.classList.remove("hidden");
+
+  resultSection.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+}
+
+function showApproval(data) {
+  waitingForApproval = true;
+  const section = document.getElementById("approvalSection");
+  const approvalRequest = document.getElementById("approvalRequest");
+  approvalRequest.textContent = data.approval_request ||
+    "Approve the draft or provide feedback before the final plan is generated.";
+  section.classList.remove("hidden");
+}
+
+function hideApproval() {
+  waitingForApproval = false;
+  document.getElementById("approvalSection").classList.add("hidden");
+  document.getElementById("approvalFeedback").value = "";
+}
 
 async function sendMessage() {
+  hideError();
 
-    hideError();
+  if (waitingForApproval) {
+    showError("Please approve or revise the current draft before starting another plan.");
+    return;
+  }
 
+  const input = document.getElementById("userInput");
+  const message = input.value.trim();
 
-    const input =
-        document.getElementById("userInput");
+  if (!message) {
+    showError("Please enter your travel request first.");
+    return;
+  }
 
-    const message =
-        input.value.trim();
+  setLoading(true, "draft");
 
+  try {
+    const response = await fetch("/api/travel", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: message,
+        thread_id: currentThreadId
+      })
+    });
 
-    // Don't send empty messages
-    if (!message) {
+    const data = await response.json();
 
-        showError(
-            "Please enter your travel request first."
-        );
-
-        return;
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Something went wrong.");
     }
 
+    currentThreadId = data.thread_id;
+    localStorage.setItem("travel_thread_id", currentThreadId);
 
-    // Show loading spinner
-    setLoading(true);
+    showWorkflow(data);
 
-
-    try {
-
-        // Send POST request to FastAPI
-        const response = await fetch(
-            "/api/travel",
-            {
-
-                method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify({
-
-                    message: message,
-
-                    // Send same thread ID for memory
-                    thread_id: currentThreadId
-                })
-            }
-        );
-
-
-        // Convert FastAPI response to JavaScript object
-        const data = await response.json();
-
-
-        // Check for backend errors
-        if (!response.ok || !data.success) {
-
-            throw new Error(
-                data.error ||
-                "Something went wrong."
-            );
-        }
-
-
-        // Save thread ID for future requests
-        currentThreadId =
-            data.thread_id;
-
-
-        localStorage.setItem(
-            "travel_thread_id",
-            currentThreadId
-        );
-
-
-        // Display the AI travel plan
-        showResult(
-            data.answer,
-            data.thread_id
-        );
-
-    } catch (error) {
-
-        // Show backend/network error
-        showError(error.message);
-
-    } finally {
-
-        // Stop loading state
-        setLoading(false);
+    if (data.requires_approval) {
+      showResult(data.itinerary || data.answer, data.thread_id, true);
+      showApproval(data);
+    } else {
+      hideApproval();
+      showResult(data.answer, data.thread_id, false);
     }
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    setLoading(false, "draft");
+  }
 }
 
+async function submitApproval(approved) {
+  hideError();
 
-/* =========================================
-   COPY RESULT
-========================================= */
+  if (!currentThreadId || !waitingForApproval) {
+    showError("There is no draft waiting for approval.");
+    return;
+  }
+
+  const feedbackInput = document.getElementById("approvalFeedback");
+  const feedback = feedbackInput.value.trim();
+
+  if (!approved && !feedback) {
+    showError("Please enter revision feedback before requesting changes.");
+    feedbackInput.focus();
+    return;
+  }
+
+  setLoading(true, "approval");
+
+  try {
+    const response = await fetch("/api/travel/approve", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        thread_id: currentThreadId,
+        approved: approved,
+        feedback: feedback
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Could not resume the travel workflow.");
+    }
+
+    showWorkflow(data);
+    hideApproval();
+    showResult(data.answer, data.thread_id, false);
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    setLoading(false, "approval");
+  }
+}
 
 function copyResult() {
+  const resultBox = document.getElementById("resultBox");
+  const text = resultBox.innerText;
 
-    const resultBox =
-        document.getElementById("resultBox");
+  if (!text) {
+    return;
+  }
 
-    const text =
-        resultBox.innerText;
+  navigator.clipboard.writeText(text)
+    .then(() => {
+      const copyBtn = document.querySelector(".copy-btn");
+      const oldText = copyBtn.textContent;
+      copyBtn.textContent = "Copied!";
 
-
-    // Don't copy if there is no result
-    if (!text) {
-        return;
-    }
-
-
-    navigator.clipboard.writeText(text)
-
-        .then(() => {
-
-            const copyBtn =
-                document.querySelector(".copy-btn");
-
-            const oldText =
-                copyBtn.textContent;
-
-
-            // Temporary success message
-            copyBtn.textContent =
-                "Copied!";
-
-
-            setTimeout(() => {
-
-                copyBtn.textContent =
-                    oldText;
-
-            }, 1400);
-        })
-
-
-        .catch(() => {
-
-            showError(
-                "Could not copy result."
-            );
-        });
+      setTimeout(() => {
+        copyBtn.textContent = oldText;
+      }, 1400);
+    })
+    .catch(() => {
+      showError("Could not copy result.");
+    });
 }
-
-
-/* =========================================
-   DOWNLOAD PDF
-========================================= */
 
 function downloadPDF() {
+  const pdfContent = document.getElementById("pdfContent");
 
-    const pdfContent =
-        document.getElementById("pdfContent");
+  if (!latestAnswerMarkdown || !pdfContent) {
+    showError("No travel plan available to download.");
+    return;
+  }
 
+  const downloadBtn = document.querySelector(".download-btn");
+  const oldText = downloadBtn.textContent;
+  downloadBtn.textContent = "Preparing PDF...";
+  downloadBtn.disabled = true;
 
-    // Check if result exists
-    if (!latestAnswerMarkdown || !pdfContent) {
-
-        showError(
-            "No travel plan available to download."
-        );
-
-        return;
+  const options = {
+    margin: 0.5,
+    filename: "ai-travel-plan.pdf",
+    image: {
+      type: "jpeg",
+      quality: 0.98
+    },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff"
+    },
+    jsPDF: {
+      unit: "in",
+      format: "a4",
+      orientation: "portrait"
+    },
+    pagebreak: {
+      mode: ["avoid-all", "css", "legacy"]
     }
+  };
 
-
-    const downloadBtn =
-        document.querySelector(
-            ".download-btn"
-        );
-
-
-    const oldText =
-        downloadBtn.textContent;
-
-
-    // Show PDF loading state
-    downloadBtn.textContent =
-        "Preparing PDF...";
-
-    downloadBtn.disabled =
-        true;
-
-
-    const options = {
-
-        margin: 0.5,
-
-        filename:
-            "ai-travel-plan.pdf",
-
-
-        image: {
-
-            type: "jpeg",
-
-            quality: 0.98
-        },
-
-
-        html2canvas: {
-
-            scale: 2,
-
-            useCORS: true,
-
-            backgroundColor:
-                "#ffffff"
-        },
-
-
-        jsPDF: {
-
-            unit: "in",
-
-            format: "a4",
-
-            orientation:
-                "portrait"
-        },
-
-
-        pagebreak: {
-
-            mode: [
-                "avoid-all",
-                "css",
-                "legacy"
-            ]
-        }
-    };
-
-
-    // Generate and download PDF
-    html2pdf()
-
-        .set(options)
-
-        .from(pdfContent)
-
-        .save()
-
-
-        .then(() => {
-
-            // Restore button
-            downloadBtn.textContent =
-                oldText;
-
-            downloadBtn.disabled =
-                false;
-        })
-
-
-        .catch(() => {
-
-            // Restore button on error
-            downloadBtn.textContent =
-                oldText;
-
-            downloadBtn.disabled =
-                false;
-
-
-            showError(
-                "Could not download PDF."
-            );
-        });
+  html2pdf()
+    .set(options)
+    .from(pdfContent)
+    .save()
+    .then(() => {
+      downloadBtn.textContent = oldText;
+      downloadBtn.disabled = false;
+    })
+    .catch(() => {
+      downloadBtn.textContent = oldText;
+      downloadBtn.disabled = false;
+      showError("Could not download PDF.");
+    });
 }
 
-
-/* =========================================
-   KEYBOARD SHORTCUT
-========================================= */
-
-document.addEventListener(
-    "keydown",
-    function(event) {
-
-        // Ctrl + Enter sends request
-        if (
-            event.ctrlKey &&
-            event.key === "Enter"
-        ) {
-
-            sendMessage();
-        }
-    }
-);
+document.addEventListener("keydown", function(event) {
+  if (event.ctrlKey && event.key === "Enter") {
+    sendMessage();
+  }
+});

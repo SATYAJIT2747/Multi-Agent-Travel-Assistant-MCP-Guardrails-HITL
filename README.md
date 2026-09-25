@@ -1,5 +1,9 @@
 
 
+# TripMate AI — Multi-Agent Travel Assistant (MCP, Guardrails & HITL)
+
+🌐 **Live Demo:** [https://multi-agent-travel-assistant-mcp.onrender.com](https://multi-agent-travel-assistant-mcp.onrender.com/) *(Deployed on Render via Docker)*
+
 TripMate AI is a web-based travel planning assistant that combines live flight status data, web research, weather information, and generative AI to produce a practical trip plan from a natural-language request.
 
 The project is organized around a multi-agent workflow built with LangGraph. Each specialist handles one part of the travel problem before a final agent combines the results into a readable response.
@@ -157,7 +161,8 @@ The frontend uses Jinja2 for the initial HTML page, plain JavaScript for API cal
 | `test.py` | Manual end-to-end command-line exercise of the travel workflow. |
 | `pyproject.toml` | Project metadata and the `uv` dependency definition. |
 | `requirements.txt` | Alternate dependency list for pip or container setup. |
-| `Dockerfile.txt` | Container recipe currently included in the repository. |
+| `Dockerfile` | Container configuration for Docker build and Render deployment. |
+| `Dockerfile.txt` | Alternative container recipe reference. |
 
 ## Configuration
 
@@ -177,6 +182,14 @@ Keep credentials out of source control. The repository already ignores `.env` an
 Install the project dependencies with the repository's `uv` workflow, ensure PostgreSQL and the required environment variables are available, and make sure `uvx` is available for the AviationStack MCP server. Then start the FastAPI application with Uvicorn. Open `http://127.0.0.1:8000` in a browser.
 
 The `/health` endpoint returns a simple service status. The browser uses `/api/travel` to submit requests and receives the answer, thread identifier, flight results, hotel results, itinerary, and model-call count.
+
+## Deployment & Docker
+
+The project includes a `Dockerfile` and is live-deployed on **Render**.
+
+- **Live URL:** [https://multi-agent-travel-assistant-mcp.onrender.com](https://multi-agent-travel-assistant-mcp.onrender.com/)
+- **Docker Image:** Based on `python:3.11-slim`, installing essential tools, dependencies from `requirements.txt`, and launching FastAPI with Uvicorn (`uvicorn app:app --host 0.0.0.0 --port 8000`).
+- **Render Setup:** Configured as a Web Service on Render built directly from the `Dockerfile`.
 
 ## Current limitations and next steps
 

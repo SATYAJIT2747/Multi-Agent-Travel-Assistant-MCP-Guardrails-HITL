@@ -62,7 +62,7 @@ Phase 3 improves relevance, safety, cost awareness, and user control. Requests n
 
 ## Architecture
 
-<img width="1536" height="1024" alt="TripMate AI architecture diagram" src="https://github.com/user-attachments/assets/a743e1dc-c2cc-4d82-a754-3e41846766df" />
+![TripMate AI Architecture Diagram](architecture_diagram.png)
 
 
 ### Request lifecycle

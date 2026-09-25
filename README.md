@@ -1,10 +1,10 @@
 
 
-# TripMate AI — Multi-Agent Travel Assistant (MCP, Guardrails & HITL)
+# TripMate AI — Multi-Agent Travel Assistant (MCP, Guardrails, HITL & LangSmith Tracing)
 
 🌐 **Live Demo:** [https://multi-agent-travel-assistant-mcp.onrender.com](https://multi-agent-travel-assistant-mcp.onrender.com/) *(Deployed on Render via Docker)*
 
-TripMate AI is a web-based travel planning assistant that combines live flight status data, web research, weather information, and generative AI to produce a practical trip plan from a natural-language request.
+TripMate AI is a web-based travel planning assistant that combines live flight status data, web research, weather information, and generative AI to produce a practical trip plan from a natural-language request, with full observability and tracing powered by **LangSmith**.
 
 The project is organized around a multi-agent workflow built with LangGraph. Each specialist handles one part of the travel problem before a final agent combines the results into a readable response.
 
@@ -141,6 +141,14 @@ PostgreSQL stores workflow checkpoints keyed by a thread identifier. This gives 
 
 FastAPI exposes the web page, health check, and travel-planning API. Uvicorn runs the ASGI application locally or in a container.
 
+### LangSmith (Observability & Tracing)
+
+LangSmith provides real-time LLMOps, execution tracing, and monitoring across the multi-agent graph:
+
+- **Graph Execution Tracing:** Captures every step of the LangGraph execution trajectory, including supervisor routing, input guardrail checks, specialist invocations, and final response generation.
+- **Latency & Performance Metrics:** Tracks step-by-step latency (e.g. tool call delays vs model generation time), status (success, interrupted, error), and run depth.
+- **Metadata & State Tracking:** Tags traces with `thread_id`, run inputs/outputs, and intermediate agent states for debugging and auditability under the `TripMate-AI` project dashboard.
+
 ### Browser presentation layer
 
 The frontend uses Jinja2 for the initial HTML page, plain JavaScript for API calls and interaction, CSS for the interface, Marked for Markdown rendering, and html2pdf.js for PDF export.
@@ -174,6 +182,9 @@ The application reads credentials and runtime settings from environment variable
 - `OPENWEATHER_API_KEY` for the custom weather MCP server.
 - `DATABASE_URL` for the PostgreSQL database used by the checkpointer.
 - `DEFAULT_ORIGIN_IATA` to change the fallback departure airport. The current default is `DAC`.
+- `LANGSMITH_TRACING=true` to enable execution tracing.
+- `LANGSMITH_API_KEY` for authenticating with LangSmith.
+- `LANGSMITH_PROJECT=TripMate-AI` to log traces under the project dashboard.
 
 Keep credentials out of source control. The repository already ignores `.env` and the local virtual environment.
 

@@ -308,7 +308,7 @@ Do not add any explanation.
     response = llm.invoke(prompt)
 
     destination = str(
-        response.content
+        response.text
     ).strip()
 
     if not destination:

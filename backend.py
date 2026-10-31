@@ -118,7 +118,7 @@ def _llm_text(system_prompt: str, user_prompt: str) -> str:
             HumanMessage(content=user_prompt),
         ]
     )
-    return str(response.content)
+    return str(response.text)
 
 
 def _json_from_llm(text: str) -> dict[str, Any]:
@@ -340,7 +340,7 @@ def flight_agent(state: TravelState):
                 HumanMessage(content=prompt),
             ]
         )
-        flight_data = response.content
+        flight_data = str(response.text)
     except Exception as exc:
         flight_data = f"Flight information unavailable: {exc}"
 
@@ -480,7 +480,7 @@ If exact live prices are unavailable, clearly label estimates as approximate.
     )
 
     return {
-        "budget_results": response.content,
+        "budget_results": str(response.text),
         "messages": [AIMessage(content="Budget assessment generated.")],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
@@ -528,7 +528,7 @@ Create a clear draft that is ready for human review.
     )
 
     return {
-        "itinerary": response.content,
+        "itinerary": str(response.text),
         "approval_request": approval_request,
         "messages": [AIMessage(content="Draft itinerary created for human review.")],
         "llm_calls": state.get("llm_calls", 0) + 1,
@@ -632,7 +632,7 @@ Important:
     )
 
     return {
-        "final_response": response.content,
+        "final_response": str(response.text),
         "messages": [response],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
@@ -681,52 +681,66 @@ def route_after_agent(current_agent: str):
 # =========================
 # Build Graph
 # =========================
-graph = StateGraph(TravelState)
+def build_graph() -> StateGraph:
+    """Build the uncompiled travel graph so tests can attach any checkpointer."""
+    graph = StateGraph(TravelState)
 
-graph.add_node("supervisor", supervisor_agent)
-graph.add_node("guardrail_blocked", guardrail_blocked_agent)
-graph.add_node("flight_agent", flight_agent)
-graph.add_node("hotel_agent", hotel_agent)
-graph.add_node("weather_agent", weather_agent)
-graph.add_node("budget_agent", budget_agent)
-graph.add_node("itinerary_agent", itinerary_agent)
-graph.add_node("human_approval", human_approval_agent)
-graph.add_node("final_agent", final_agent)
+    graph.add_node("supervisor", supervisor_agent)
+    graph.add_node("guardrail_blocked", guardrail_blocked_agent)
+    graph.add_node("flight_agent", flight_agent)
+    graph.add_node("hotel_agent", hotel_agent)
+    graph.add_node("weather_agent", weather_agent)
+    graph.add_node("budget_agent", budget_agent)
+    graph.add_node("itinerary_agent", itinerary_agent)
+    graph.add_node("human_approval", human_approval_agent)
+    graph.add_node("final_agent", final_agent)
 
-graph.add_edge(START, "supervisor")
-graph.add_conditional_edges("supervisor", route_from_supervisor, ROUTE_MAP)
+    graph.add_edge(START, "supervisor")
+    graph.add_conditional_edges("supervisor", route_from_supervisor, ROUTE_MAP)
 
-graph.add_conditional_edges(
-    "flight_agent", route_after_agent("flight_agent"), ROUTE_MAP
-)
-graph.add_conditional_edges(
-    "hotel_agent", route_after_agent("hotel_agent"), ROUTE_MAP
-)
-graph.add_conditional_edges(
-    "weather_agent", route_after_agent("weather_agent"), ROUTE_MAP
-)
-graph.add_conditional_edges(
-    "budget_agent", route_after_agent("budget_agent"), ROUTE_MAP
-)
+    graph.add_conditional_edges(
+        "flight_agent", route_after_agent("flight_agent"), ROUTE_MAP
+    )
+    graph.add_conditional_edges(
+        "hotel_agent", route_after_agent("hotel_agent"), ROUTE_MAP
+    )
+    graph.add_conditional_edges(
+        "weather_agent", route_after_agent("weather_agent"), ROUTE_MAP
+    )
+    graph.add_conditional_edges(
+        "budget_agent", route_after_agent("budget_agent"), ROUTE_MAP
+    )
 
-graph.add_edge("itinerary_agent", "human_approval")
-graph.add_edge("human_approval", "final_agent")
-graph.add_edge("final_agent", END)
-graph.add_edge("guardrail_blocked", END)
+    graph.add_edge("itinerary_agent", "human_approval")
+    graph.add_edge("human_approval", "final_agent")
+    graph.add_edge("final_agent", END)
+    graph.add_edge("guardrail_blocked", END)
+
+    return graph
+
 
 # =========================
 # PostgreSQL Checkpointer - original persistence kept
 # =========================
-DATABASE_URL = get_database_url()
-_conn = psycopg.connect(
-    DATABASE_URL,
-    autocommit=True,
-    row_factory=dict_row,
-)
-checkpointer = PostgresSaver(_conn)
-checkpointer.setup()
+# Connected lazily on first use so the module can be imported (e.g. by tests)
+# without a live database.
+_travel_graph = None
 
-travel_graph = graph.compile(checkpointer=checkpointer)
+
+def get_travel_graph():
+    global _travel_graph
+
+    if _travel_graph is None:
+        conn = psycopg.connect(
+            get_database_url(),
+            autocommit=True,
+            row_factory=dict_row,
+        )
+        checkpointer = PostgresSaver(conn)
+        checkpointer.setup()
+        _travel_graph = build_graph().compile(checkpointer=checkpointer)
+
+    return _travel_graph
 
 
 # =========================
@@ -792,7 +806,7 @@ def run_travel_agent(user_input: str, thread_id: str | None = None):
 
     config = {"configurable": {"thread_id": thread_id}}
 
-    result = travel_graph.invoke(
+    result = get_travel_graph().invoke(
         {
             "messages": [HumanMessage(content=user_input)],
             "user_query": user_input,
@@ -828,7 +842,7 @@ def resume_travel_agent(
         raise ValueError("thread_id is required to resume a travel plan.")
 
     config = {"configurable": {"thread_id": thread_id}}
-    result = travel_graph.invoke(
+    result = get_travel_graph().invoke(
         Command(
             resume={
                 "approved": approved,

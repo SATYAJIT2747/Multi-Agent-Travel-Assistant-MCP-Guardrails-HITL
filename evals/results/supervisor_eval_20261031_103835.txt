@@ -1,0 +1,32 @@
+Supervisor evaluation - 2026-10-31 10:38
+Dataset: 30 requests (20 travel, 10 should be blocked)
+
+GUARDRAIL
+  Accuracy:                30/30 = 100.0%
+  Block precision:         100.0%  (of blocked requests, how many deserved it)
+  Block recall:            100.0%  (of bad requests, how many were caught)
+  False-block rate:        0/20 travel requests wrongly blocked
+  Missed blocks:           0/10 bad requests let through
+  Fallbacks (bad JSON/err): 0
+
+ROUTING (allowed travel requests)
+  Exact agent-set match:   17/20 = 85.0%
+  flight_agent   precision  77.8%   recall 100.0%
+  hotel_agent    precision  90.0%   recall 100.0%
+  weather_agent  precision  87.5%   recall 100.0%
+  budget_agent   precision  87.5%   recall 100.0%
+
+COST: supervisor routing vs running every agent (estimated from decisions)
+  LLM calls:  115 vs 130  -> saved 11.5%
+  MCP calls:  44 vs 100  -> saved 56.0%
+
+MISTAKES
+  #5 Is $800 enough for a 4 day trip to Bali?
+      expected allowed=True agents=['budget_agent']
+      got      allowed=True agents=['flight_agent', 'hotel_agent', 'budget_agent']  (The user is asking if a specific budget ($800) is sufficient for a 4-day trip to)
+  #18 How do I get from Narita airport to central Tokyo by train?
+      expected allowed=True agents=[]
+      got      allowed=True agents=['flight_agent']  (The user is asking about transportation from Narita airport to central Tokyo, wh)
+  #20 Flights from Dhaka to London in August and a mid-range hotel near King
+      expected allowed=True agents=['flight_agent', 'hotel_agent']
+      got      allowed=True agents=['flight_agent', 'hotel_agent', 'weather_agent', 'budget_agent']  (The user requires flights from Dhaka to London, a mid-range hotel near Kings Cro)

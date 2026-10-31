@@ -16,6 +16,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
+# uv provides `uvx`, which mcp_client.py uses to launch the AviationStack MCP server.
+COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /uvx /bin/
+
 COPY . .
 
 EXPOSE 8000

@@ -5,3 +5,13 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Secrets: provide these as environment variables on Render, never in the image
+.env
+.env.*
+
+# Not needed at runtime
+.git
+__pycache__/
+tests/
+evals/

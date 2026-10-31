@@ -1,5 +1,6 @@
 """End-to-end runs of the real LangGraph flow with fake LLM, tools and checkpointer."""
 import json
+import threading
 
 from backend import resume_travel_agent, run_travel_agent
 
@@ -81,3 +82,53 @@ def test_failed_mcp_server_still_produces_draft(fake_llm, tool_calls, memory_gra
     assert result["requires_approval"] is True
     assert result["answer"] == "DRAFT ITINERARY"
     assert "temporarily unavailable" in result["hotel_results"]
+
+
+def test_research_agents_run_in_parallel(fake_llm, tool_calls, memory_graph, monkeypatch):
+    import backend
+
+    # Opens only when flight, hotel and weather are all inside a tool call at
+    # the same time. Run one after another, the first one would time out.
+    barrier = threading.Barrier(3, timeout=5)
+
+    async def flight_tool(tool_name, tool_args=None):
+        if tool_name == "list_airports":
+            barrier.wait()
+        return f"{tool_name} data"
+
+    async def hotel_tool(query):
+        barrier.wait()
+        return "Hotel A, Hotel B"
+
+    async def weather_tool(city):
+        barrier.wait()
+        return "Sunny, 22C"
+
+    monkeypatch.setattr(backend, "aviation_mcp_call", flight_tool)
+    monkeypatch.setattr(backend, "tavily_mcp_search", hotel_tool)
+    monkeypatch.setattr(backend, "weather_mcp_search", weather_tool)
+
+    result = run_travel_agent(QUERY, thread_id="t-parallel")
+
+    # A broken barrier would have pushed the agents into their fallback text.
+    assert "unavailable" not in result["flight_results"]
+    assert result["hotel_results"] == "Hotel A, Hotel B"
+    assert "Sunny, 22C" in result["weather_results"]
+
+    # Fan-in: budget runs once, after all three, and sees every result.
+    [budget_prompt] = fake_llm.prompts_for("budget analyst")
+    assert "Hotel A, Hotel B" in budget_prompt
+    assert "Sunny, 22C" in budget_prompt
+    assert len(fake_llm.prompts_for("expert travel planner")) == 1
+
+
+def test_llm_calls_are_counted_per_run(fake_llm, tool_calls, memory_graph):
+    # guardrail + supervisor + flight + weather + budget + itinerary = 6
+    # (hotel makes no LLM call; final runs after approval).
+    first = run_travel_agent(QUERY, thread_id="t-count")
+    assert first["llm_calls"] == 6
+
+    assert resume_travel_agent("t-count", approved=True)["llm_calls"] == 7
+
+    # A new plan on the same thread starts counting from zero again.
+    assert run_travel_agent(QUERY, thread_id="t-count")["llm_calls"] == 6

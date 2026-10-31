@@ -1,6 +1,6 @@
 import pytest
 
-from backend import _json_from_llm, route_after_agent, route_from_supervisor
+from backend import _json_from_llm, route_after_research, route_from_supervisor
 
 
 def test_blocked_request_routes_to_guardrail_message():
@@ -8,26 +8,26 @@ def test_blocked_request_routes_to_guardrail_message():
     assert route_from_supervisor(state) == "guardrail_blocked"
 
 
-def test_selected_agents_run_in_fixed_order():
-    # The supervisor listed weather before flight; AGENT_ORDER still wins.
+def test_selected_research_agents_are_dispatched_together():
+    # A list means LangGraph runs these nodes in parallel in the same step.
     state = {
         "guardrail_allowed": True,
         "selected_agents": ["weather_agent", "flight_agent", "itinerary_agent"],
     }
-
-    assert route_from_supervisor(state) == "flight_agent"
-    assert route_after_agent("flight_agent")(state) == "weather_agent"
-    assert route_after_agent("weather_agent")(state) == "itinerary_agent"
+    assert route_from_supervisor(state) == ["flight_agent", "weather_agent"]
 
 
-def test_unselected_agents_are_skipped():
-    state = {
-        "guardrail_allowed": True,
-        "selected_agents": ["hotel_agent", "budget_agent", "itinerary_agent"],
-    }
+def test_budget_runs_after_research_only_when_selected():
+    with_budget = {"selected_agents": ["hotel_agent", "budget_agent", "itinerary_agent"]}
+    without_budget = {"selected_agents": ["hotel_agent", "itinerary_agent"]}
 
-    assert route_from_supervisor(state) == "hotel_agent"
-    assert route_after_agent("hotel_agent")(state) == "budget_agent"
+    assert route_after_research(with_budget) == "budget_agent"
+    assert route_after_research(without_budget) == "itinerary_agent"
+
+
+def test_budget_only_request_skips_research():
+    state = {"guardrail_allowed": True, "selected_agents": ["budget_agent", "itinerary_agent"]}
+    assert route_from_supervisor(state) == "budget_agent"
 
 
 def test_no_specialists_goes_straight_to_itinerary():

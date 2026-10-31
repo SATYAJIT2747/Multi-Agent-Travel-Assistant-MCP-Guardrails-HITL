@@ -64,6 +64,15 @@ llm = ChatGoogleGenerativeAI(model="gemini-flash-lite-latest")
 # =========================
 # State - original fields kept, new control fields added
 # =========================
+def _add_llm_calls(total: int, calls: int | None) -> int:
+    """Each node reports the LLM calls it made; None starts a new run at 0.
+
+    A reducer is required because flight, hotel and weather run in parallel and
+    LangGraph rejects two parallel writes to a plain field.
+    """
+    return 0 if calls is None else (total or 0) + calls
+
+
 class TravelState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], operator.add]
     user_query: str
@@ -88,7 +97,7 @@ class TravelState(TypedDict, total=False):
     human_feedback: str
     final_response: str
 
-    llm_calls: int
+    llm_calls: Annotated[int, _add_llm_calls]
 
 
 # =========================
@@ -148,7 +157,7 @@ def _empty_constraints() -> dict[str, Any]:
 # =========================
 def supervisor_agent(state: TravelState):
     query = state["user_query"]
-    llm_calls = state.get("llm_calls", 0)
+    llm_calls = 0
 
     guardrail_prompt = f"""
 Determine whether the following request belongs to travel planning or travel
@@ -347,7 +356,7 @@ def flight_agent(state: TravelState):
     return {
         "flight_results": flight_data,
         "messages": [AIMessage(content="Flight recommendations generated")],
-        "llm_calls": state.get("llm_calls", 0) + 1,
+        "llm_calls": 1,
     }
 
 
@@ -386,9 +395,6 @@ def hotel_agent(state: TravelState):
                 content="Hotel information processed."
             )
         ],
-        "llm_calls": (
-            state.get("llm_calls", 0) + 1
-        ),
     }
 
 
@@ -438,6 +444,8 @@ Forecast:
                 content="Weather information processed."
             )
         ],
+        # extract_destination() makes one LLM call.
+        "llm_calls": 1,
     }
 
 
@@ -482,7 +490,7 @@ If exact live prices are unavailable, clearly label estimates as approximate.
     return {
         "budget_results": str(response.text),
         "messages": [AIMessage(content="Budget assessment generated.")],
-        "llm_calls": state.get("llm_calls", 0) + 1,
+        "llm_calls": 1,
     }
 
 
@@ -531,7 +539,7 @@ Create a clear draft that is ready for human review.
         "itinerary": str(response.text),
         "approval_request": approval_request,
         "messages": [AIMessage(content="Draft itinerary created for human review.")],
-        "llm_calls": state.get("llm_calls", 0) + 1,
+        "llm_calls": 1,
     }
 
 
@@ -634,7 +642,7 @@ Important:
     return {
         "final_response": str(response.text),
         "messages": [response],
-        "llm_calls": state.get("llm_calls", 0) + 1,
+        "llm_calls": 1,
     }
 
 
@@ -656,26 +664,26 @@ def _selected_agents(state: TravelState) -> list[str]:
     return [agent for agent in AGENT_ORDER if agent in selected]
 
 
-def route_from_supervisor(state: TravelState) -> str:
+# Flight, hotel and weather only read the user query, so they run in parallel.
+# Budget reads their results, so it runs after them.
+RESEARCH_AGENTS = ["flight_agent", "hotel_agent", "weather_agent"]
+
+
+def route_after_research(state: TravelState) -> str:
+    if "budget_agent" in _selected_agents(state):
+        return "budget_agent"
+    return "itinerary_agent"
+
+
+def route_from_supervisor(state: TravelState) -> str | list[str]:
     if not state.get("guardrail_allowed", True):
         return "guardrail_blocked"
 
     selected = _selected_agents(state)
-    return selected[0] if selected else "itinerary_agent"
+    research = [agent for agent in RESEARCH_AGENTS if agent in selected]
 
-
-def route_after_agent(current_agent: str):
-    def route(state: TravelState) -> str:
-        selected = _selected_agents(state)
-        current_index = AGENT_ORDER.index(current_agent)
-
-        for next_agent in AGENT_ORDER[current_index + 1 :]:
-            if next_agent in selected:
-                return next_agent
-
-        return "itinerary_agent"
-
-    return route
+    # Returning several nodes makes LangGraph run them in the same step.
+    return research or route_after_research(state)
 
 
 # =========================
@@ -698,19 +706,12 @@ def build_graph() -> StateGraph:
     graph.add_edge(START, "supervisor")
     graph.add_conditional_edges("supervisor", route_from_supervisor, ROUTE_MAP)
 
-    graph.add_conditional_edges(
-        "flight_agent", route_after_agent("flight_agent"), ROUTE_MAP
-    )
-    graph.add_conditional_edges(
-        "hotel_agent", route_after_agent("hotel_agent"), ROUTE_MAP
-    )
-    graph.add_conditional_edges(
-        "weather_agent", route_after_agent("weather_agent"), ROUTE_MAP
-    )
-    graph.add_conditional_edges(
-        "budget_agent", route_after_agent("budget_agent"), ROUTE_MAP
-    )
+    # Fan-in: whichever research agents ran, the next node runs once after
+    # all of them have finished.
+    for agent in RESEARCH_AGENTS:
+        graph.add_conditional_edges(agent, route_after_research, ROUTE_MAP)
 
+    graph.add_edge("budget_agent", "itinerary_agent")
     graph.add_edge("itinerary_agent", "human_approval")
     graph.add_edge("human_approval", "final_agent")
     graph.add_edge("final_agent", END)
@@ -824,7 +825,7 @@ def run_travel_agent(user_input: str, thread_id: str | None = None):
             "approved": False,
             "human_feedback": "",
             "final_response": "",
-            "llm_calls": 0,
+            "llm_calls": None,  # reset the counter for this run
         },
         config=config,
     )

@@ -214,11 +214,12 @@ The project includes a `Dockerfile` and is live-deployed on **Render**.
 
 ### Automated tests
 
-`tests/` contains 24 pytest tests that run without API keys, MCP servers or a database. A fake LLM, fake MCP tools and LangGraph's in-memory checkpointer stand in for Gemini, the MCP servers and PostgreSQL, while the real graph, routing and FastAPI endpoints are exercised:
+`tests/` contains 26 pytest tests that run without API keys, MCP servers or a database. A fake LLM, fake MCP tools and LangGraph's in-memory checkpointer stand in for Gemini, the MCP servers and PostgreSQL, while the real graph, routing and FastAPI endpoints are exercised:
 
 - Routing: blocked requests end at the guardrail, selected research agents are dispatched together, budget waits for them, unselected agents are skipped.
 - Parallelism: flight, hotel and weather must all be inside a tool call at the same moment (a 3-way barrier) or the test fails.
 - Concurrency: `/health` answers while a slow plan request is still running.
+- Timing: parallel research takes about as long as the slowest agent (about 1.0s instead of 2.5s), and three 1-second plan requests finish in about 1s instead of queueing for 3s.
 - Supervisor fallbacks: invalid JSON runs every agent; a guardrail error fails open.
 - Human-in-the-loop: a request pauses with the draft, approval resumes the same thread, and revision feedback reaches the final agent.
 - Isolation: blocked requests never call a tool; an unavailable MCP server still yields a draft.
@@ -251,6 +252,20 @@ Latest result (`evals/results/`):
 The three routing misses all selected extra agents instead of missing one. Cost savings are estimated from the routing decisions using each agent's call count. The supervisor adds one LLM call, so for a full trip plan routing costs one call more than running everything. The savings come from narrower requests.
 
 The first run of this evaluation exposed a production bug; see [Challenges and fixes](#challenges-and-fixes).
+
+### Performance benchmark
+
+`evals/benchmark_performance.py` compares the previous design with the current one. Gemini and MCP calls are replaced by sleeps with typical latencies (1.5s per Gemini call, 1.0s per MCP call), so the numbers are repeatable and free, but they are simulated rather than measured against live services.
+
+```bash
+uv run python evals/benchmark_performance.py
+```
+
+| Scenario | Before | After |
+| --- | --- | --- |
+| Time to draft itinerary, all specialists selected | 14.1s (sequential chain) | 9.5s (parallel research), 32% faster |
+| 5 travellers request a 3s plan at the same time, all finished | 15.0s (`async def`, queued) | 3.0s (`def`, worker threads), 4.9x sooner |
+| `/health` response while those plans run | 14.82s | 0.01s |
 
 ## Challenges and fixes
 
@@ -291,7 +306,7 @@ The code converted the reply with `str(response.content)`, which produced the Py
 
 **Fix.** The two plan endpoints are now plain `def`. FastAPI runs those in a worker thread pool, so a slow plan occupies one thread and the event loop stays free for other requests. Inside a worker thread there is no running event loop, so `asyncio.run()` works normally and `nest_asyncio` was removed.
 
-**Proof.** `test_slow_plan_does_not_block_other_requests` starts a plan that stays busy, then calls `/health` and checks that it answers before the plan finishes. It fails against the old `async def` endpoints and passes after the change.
+**Proof.** `test_slow_plan_does_not_block_other_requests` starts a plan that stays busy, then calls `/health` and checks that it answers before the plan finishes. `test_concurrent_plans_overlap_instead_of_queueing` sends three 1-second plans at once and requires them to finish within 2 seconds. Against the old `async def` endpoints both tests fail (the three plans took 3.01s); after the change they pass (about 1.0s). In the benchmark, five simultaneous plans finished 4.9x sooner and `/health` dropped from 14.8s to 0.01s while they ran.
 
 ### 4. Specialists ran one after another
 
@@ -301,7 +316,7 @@ The code converted the reply with `str(response.content)`, which produced the Py
 
 **What broke along the way.** Parallel nodes cannot write to the same plain state field. Flight and hotel both updated `llm_calls`, which LangGraph rejects. `llm_calls` now uses a reducer: each node reports only the calls it made, and LangGraph adds them up. A new run on the same thread resets the counter. This also fixed two counting errors: the hotel agent counted an LLM call it never makes, and the weather agent did not count the call in `extract_destination()`.
 
-**Proof.** In `test_research_agents_run_in_parallel`, each fake tool waits on a 3-way barrier that opens only when flight, hotel and weather are all running at once. Run one after another, the barrier would time out. The test also checks that the budget agent runs once and sees every result.
+**Proof.** In `test_research_agents_run_in_parallel`, each fake tool waits on a 3-way barrier that opens only when flight, hotel and weather are all running at once. Run one after another, the barrier would time out. The test also checks that the budget agent runs once and sees every result. `test_parallel_research_takes_as_long_as_the_slowest_agent` gives each tool call 0.5s of latency: one after another the research takes 2.5s, in parallel it takes about 1.0s. In the benchmark, the time to a draft itinerary dropped from 14.1s to 9.5s (32%).
 
 ## Current limitations and next steps
 

@@ -79,3 +79,25 @@ def test_slow_plan_does_not_block_other_requests(client, monkeypatch):
 
     assert health.status_code == 200
     assert plan_still_running
+
+
+def test_concurrent_plans_overlap_instead_of_queueing(client, monkeypatch):
+    import time
+
+    def one_second_plan(user_input, thread_id=None):
+        time.sleep(1.0)
+        return {"thread_id": "t", "answer": "done"}
+
+    monkeypatch.setattr(app_module, "run_travel_agent", one_second_plan)
+
+    # Three 1-second plans: about 3s if they queue on the event loop (the old
+    # async def endpoints), about 1s if each runs in its own worker thread.
+    start = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        responses = list(pool.map(
+            lambda i: client.post("/api/travel", json={"message": f"trip {i}"}), range(3)
+        ))
+    elapsed = time.perf_counter() - start
+
+    assert all(r.status_code == 200 for r in responses)
+    assert elapsed < 2.0, f"3 plans took {elapsed:.2f}s; requests are queueing"

@@ -1,0 +1,14 @@
+Performance benchmark - 2026-10-31 11:07
+Simulated latency: Gemini call 1.5s, MCP call 1.0s
+
+1. TIME TO DRAFT ITINERARY (all specialists selected)
+   Sequential chain (old):      14.1s
+   Parallel research (new):      9.5s
+   -> 32% faster
+
+2. 5 TRAVELLERS REQUEST A PLAN AT THE SAME TIME (3s per plan)
+   All plans done, async def (old):  15.0s
+   All plans done, def (new):         3.0s
+   /health while plans run, old:    14.82s
+   /health while plans run, new:     0.01s
+   -> plans finish 4.9x sooner; the server stays responsive

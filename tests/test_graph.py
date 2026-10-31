@@ -132,3 +132,25 @@ def test_llm_calls_are_counted_per_run(fake_llm, tool_calls, memory_graph):
 
     # A new plan on the same thread starts counting from zero again.
     assert run_travel_agent(QUERY, thread_id="t-count")["llm_calls"] == 6
+
+
+def test_parallel_research_takes_as_long_as_the_slowest_agent(fake_llm, tool_calls, memory_graph, monkeypatch):
+    import asyncio
+    import time
+
+    import backend
+
+    async def slow_tool(*args, **kwargs):
+        await asyncio.sleep(0.5)
+        return "tool data"
+
+    for name in ("aviation_mcp_call", "tavily_mcp_search", "weather_mcp_search", "forecast_mcp_search"):
+        monkeypatch.setattr(backend, name, slow_tool)
+
+    # Flight 2 calls (1.0s) + hotel 1 call (0.5s) + weather 2 calls (1.0s):
+    # 2.5s one after another, about 1.0s (the slowest agent) in parallel.
+    start = time.perf_counter()
+    run_travel_agent(QUERY, thread_id="t-timing")
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 2.0, f"research took {elapsed:.2f}s; agents are not running in parallel"
